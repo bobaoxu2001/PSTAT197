@@ -1,0 +1,185 @@
+---
+title: "PSTAT197_Section1_AOXU"
+author: "AO XU"
+date: "2022-10-05"
+output: html_document
+---
+
+
+```{r}
+# a number
+4.5
+```
+
+```{r}
+# a factor
+factor(1, levels = c(1, 2), labels = c('blue', 'red'))
+# less verbose definition
+factor('blue', levels = c('blue', 'red'))
+# check structure
+str(factor('blue', levels = c('blue', 'red')))
+```
+
+```{r}
+# an array
+my_ary <- array(data = c(1, 2, 3, 4, 5, 6, 7, 8), 
+           dim = c(2, 4))
+
+my_ary
+```
+
+```{r}
+# assign a name
+my_lst <- list(animal = 'cat',
+               numbers = c(1, 4, 7),
+               short = TRUE)
+
+# check structure
+str(my_lst)
+```
+
+```{r}
+library(tidyverse)
+url <- 'https://raw.githubusercontent.com/pstat197/pstat197a/main/materials/labs/lab2-tidyverse/data/'
+background <- paste(url,'background-clean.csv',sep = '') %>%
+    read_csv()
+
+interest <- paste(url,'interest-clean.csv',sep = '') %>%
+    read_csv()
+
+metadata <- paste(url,'survey-metadata.csv',sep = '') %>%
+    read_csv()
+```
+
+```{r}
+# print the data frame for inspection in the console
+background
+```
+
+```{r}
+# my_df %>% STEP1() %>% STEP2() %>% STEP3()
+```
+
+```{r}
+# the pipe operator
+# a familiar example
+my_vec <- c(1, 2, 5) 
+str(my_vec)
+# use the pipe operator instead
+my_vec %>% str()
+```
+
+```{r}
+# filter rows
+background %>%
+  filter(math.comf > 3)
+```
+```{r}
+# select a column
+background %>%
+  select(math.comf)
+```
+```{r}
+# pull a column
+background %>%
+  pull(rsrch)
+```
+```{r}
+# define a new variable
+background %>%
+  mutate(avg.comf = (math.comf + prog.comf + stat.comf)/3)
+```
+```{r}
+# sequence of verbs
+background %>%
+  filter(stat.prof == 'Adv') %>%
+  mutate(avg.comf = (math.comf + prog.comf + stat.comf)/3) %>%
+  select(avg.comf, rsrch) 
+```
+
+```{r}
+# a summary
+background %>%
+  filter(stat.prof == 'Adv') %>%
+  mutate(avg.comf = (math.comf + prog.comf + stat.comf)/3) %>%
+  select(avg.comf, rsrch) %>%
+  summarize(prop.rsrch = mean(rsrch))
+```
+
+```{r}
+# count observations
+background %>%
+  group_by(stat.prof) %>%
+  count()
+```
+
+```{r}
+# a grouped summary
+background %>%
+  group_by(stat.prof) %>%
+  select(contains('.comf')) %>%
+  summarize_all(.funs = mean)
+```
+
+```{r}
+# many variables, many summaries
+comf_sum <- background %>%
+  select(contains('comf')) %>%
+  summarise_all(.funs = list(mean = mean, 
+                             median = median,
+                             min = min, 
+                             max = max))
+
+comf_sum
+```
+
+```{r}
+# separate into rows and columns
+comf_sum %>%
+  gather(stat, val) %>%
+  separate(stat, into = c('variable', 'stat'), sep = '_') 
+```
+
+```{r}
+# spread into table
+comf_sum %>%
+  gather(stat, val) %>%
+  separate(stat, into = c('variable', 'stat'), sep = '_') %>%
+  spread(stat, val)
+```
+
+```{r}
+# summary of classes taken
+classes <- background %>%
+  select(11:29) %>%
+  mutate_all(~factor(.x, levels = c('no', 'yes'))) %>%
+  mutate_all(~as.numeric(.x) - 1) %>%
+  summarize_all(mean) %>%
+  gather(class, proportion)
+
+classes
+```
+
+```{r}
+classes %>% arrange(desc(proportion))
+```
+
+```{r}
+# plot it
+classes %>%
+  ggplot(aes(x = proportion, y = class)) +
+  geom_point()
+```
+
+```{r}
+fig <- classes %>%
+  ggplot(aes(x = proportion, y = reorder(class, proportion))) +
+  geom_point()
+
+fig
+```
+
+```{r}
+# adjust labels
+fig + labs(x = 'proportion of class', y = '')
+```
