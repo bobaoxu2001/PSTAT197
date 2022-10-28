@@ -1,0 +1,13 @@
+---
+title: "Section4"
+author: "AO XU"
+date: "2022-10-27"
+output: html_document
+---
+
+```{r}
+url <- 'https://raw.githubusercontent.com/pstat197/pstat197a/main/materials/scripts/package-installs.R'
+
+source(url)
+```
+
