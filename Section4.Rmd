@@ -6,250 +6,124 @@ output: html_document
 ---
 
 ```{r}
-# load packages
+url <- 'https://raw.githubusercontent.com/pstat197/pstat197a/main/materials/scripts/package-installs.R'
+
+source(url)
+```
+```{r}
+# setup
 library(tidyverse)
-library(tidymodels)
-library(modelr)
-library(rsample)
-library(yardstick)
+library(tidytext)
+library(tokenizers)
+library(textstem)
+library(stopwords)
+url <- 'https://raw.githubusercontent.com/pstat197/pstat197a/main/materials/labs/lab5-text/data/drseuss.txt'
 
 # read data
-url <- 'https://raw.githubusercontent.com/pstat197/pstat197a/main/materials/labs/lab4-logistic/data/biomarker_clean.csv'
-
-s_star <- c("DERM", "RELT", "IgD", "PTN", "FSTL1")
-biomarker <- read_csv(url) %>%
-  # subset to proteins of interest and group
-  select(group, any_of(s_star)) %>%
-  # convert group (chr) to binary (lgl)
-  mutate(class = (group == 'ASD')) %>%
-  select(-group)
-```
-# Data partitioning
-
-Data partitioning consists in setting aside a random subset of observations that will be used only to assess predictive accuracy and not to fit any models. The held out data is treated as a ‘test’ set of observations to try to predict. This provides a more realistic assessment of predictive accuracy that is closer to what can be expected if genuinely new data is collected.
-
-```{r}
-# for reproducibility
-set.seed(102022)
-
-# partition data
-partitions <- biomarker %>%
-  initial_split(prop = 0.8)
-
-# examine
-partitions
+seuss_lines <- read_lines(url, skip_empty_rows = T)
 ```
 
 ```{r}
-# for reproducibility
-set.seed(102022)
-
-# partition data
-partitions <- biomarker %>%
-  initial_split(prop = 0.8)
-
-# examine
-partitions
-```
-```{r}
-# training set
-training(partitions) %>% head(4)
+seuss_lines %>% head()
 ```
 
 ```{r}
-# testing set
-testing(partitions) %>% head(4)
-```
-
-# Model fitting
-
-```{r}
-# fit glm
-fit <- glm(class ~ ., 
-           data = biomarker, 
-           family = binomial(link = "logit"))
-```
-```{r}
-tidy(fit)
-```
-# Predictions
-```{r}
-# compute predictions on the test set
-testing(partitions) %>%
-  add_predictions(fit)
-```
-```{r}
-# manually transform to probabilities
-testing(partitions) %>%
-  add_predictions(fit) %>%
-  mutate(probs = 1/(1 + exp(-pred))) %>%
-  select(class, pred, probs) %>%
-  head(5)
-```
-```{r}
-# predict on scale of response
-testing(partitions) %>%
-  add_predictions(fit, type = 'response') %>%
-  select(class, pred) %>%
-  head(5)
+# flag lines with a document id
+seuss_lines_df <- tibble(line_lag = c(seuss_lines, NA)) %>%
+  mutate(flag = str_detect(line_lag, 'Dr. Seuss'),
+         line = lag(line_lag, n = 1),
+         doc = cumsum(flag)) %>% 
+  select(doc, line) %>%
+  slice(-1) %>%
+  fill(doc)
 ```
 
 ```{r}
-# predict classes
-testing(partitions) %>%
-  add_predictions(fit, type = 'response') %>%
-  mutate(pred.class = (pred > 0.5)) %>%
-  select(class, pred, pred.class) %>%
-  head(5)
-```
+# grab titles
+titles <- seuss_lines_df %>% 
+  group_by(doc) %>%
+  slice_head() %>%
+  pull(line) %>%
+  tolower()
 
-# Accuracy measures
-```{r}
-# tabulate
-testing(partitions) %>%
-  add_predictions(fit, type = 'response') %>%
-  mutate(pred.class = (pred > 0.5)) %>%
-  select(class, pred.class) %>%
-  table()
-```
-```{r}
-# store predictions as factors
-pred_df <- testing(partitions) %>%
-  add_predictions(fit, type = 'response') %>%
-  mutate(pred.class = (pred > 0.5),
-         group = factor(class, labels = c('TD', 'ASD')),
-         pred.group = factor(pred.class, labels = c('TD', 'ASD'))) 
-
-# check order of factor levels
-pred_df %>% pull(group) %>% levels()
-```
-```{r}
-# compute specificity
-pred_df %>%
-  specificity(truth = group, 
-              estimate = pred.group,
-              event_level = 'second')
-# sensitivity
-pred_df %>%
-  sensitivity(truth = group,
-              estimate = pred.group,
-              event_level = 'second')
-# accuracy
-pred_df %>%
-  accuracy(truth = group,
-              estimate = pred.group,
-              event_level = 'second')
-```
-```{r}
-# define panel (arguments must be yardstick metric function names)
-panel_fn <- metric_set(sensitivity, specificity)
-
-# compute
-pred_df %>%
-  panel_fn(truth = group,
-           estimate = pred.group,
-           event_level = 'second')
+# label docs
+seuss_lines_df <- seuss_lines_df %>%
+  mutate(doc = factor(doc, labels = titles))
 ```
 
 ```{r}
-pred_df %>% conf_mat(truth = group, estimate = pred.group)
+# remove header lines (title/author)
+seuss_lines_clean <- seuss_lines_df %>%
+  group_by(doc) %>%
+  mutate(line_num = row_number() - 2) %>%
+  filter(line_num > 0)
+
 ```
 
-# ROC curves
+# Collapsing lines and cleaning text
 ```{r}
-pred_df %>%
-  roc_curve(truth = group, estimate = pred)
+# collapse lines into one long string
+seuss_text <- seuss_lines_clean %>% 
+  summarize(text = str_c(line, collapse = ' '))
 ```
-```{r}
-pred_df %>%
-  roc_curve(truth = group, 
-            estimate = pred,
-            event_level = 'second') %>%
-  ggplot(aes(y = sensitivity, x = 1 - specificity)) +
-  geom_path() +
-  geom_abline(slope = 1, intercept = 0)
-```
-```{r}
-pred_df %>% roc_auc(truth = group, 
-                    estimate = pred,
-                    event_level = 'second')
-```
-# Combined metric types
-```{r}
-panel <- metric_set(roc_auc, accuracy) 
 
-pred_df %>% panel(truth = group,
-                  estimate = pred.group,
-                  pred,
-                  event_level = 'second')
+```{r}
+cat_in_hat <- seuss_text %>% slice(1) %>% pull(text)
 ```
 ```{r}
-# define some helper functions
-fit_fn <- function(.df){
-  glm(class ~ ., family = 'binomial', data = .df)
+cat_in_hat %>%
+  str_remove_all('[[:punct:]]') %>%
+  tolower()
+```
+```{r}
+clean_fn <- function(.text){
+  str_remove_all(.text, '[[:punct:]]') %>% tolower()
 }
 
-pred_fn <- function(.df, .mdl){
-  .df %>% add_predictions(.mdl, type = 'response')
-}
-
-panel <- metric_set(sensitivity, specificity, accuracy, roc_auc)
-
-eval_fn <- function(.df){
-  .df %>%
-    mutate(group = factor(class, labels = c('TD', 'ASD')),
-           pred.group = factor(pred > 0.5, labels = c('TD', 'ASD'))) %>%
-    panel(truth = group,
-          estimate = pred.group,
-          pred,
-          event_level = 'second')
-  
-}
-```
-```{r}
-set.seed(101922)
-n_splits <- 400
-out <- tibble(partition = 1:n_splits,
-       split = map(partition, ~ initial_split(biomarker, prop = 0.8)),
-       train = map(split, training),
-       test = map(split, testing),
-       fit = map(train, fit_fn),
-       pred_test = map2(test, fit, pred_fn),
-       pred_train = map2(train, fit, pred_fn),
-       eval_test = map(pred_test, eval_fn),
-       eval_train = map(pred_train, eval_fn))
-
-out %>% head(4)
-```
-```{r}
-train_accuracy %>% head(4)
+seuss_text_clean <- seuss_text %>%
+  mutate(text = clean_fn(text))
 ```
 
+# Basic NLP
 ```{r}
-train_summaries <- train_accuracy %>%
-  rename(roc.auc = roc_auc) %>%
-  select(-partition) %>%
-  summarize_all(.funs = list(mean = mean, sd = sd)) %>%
-  gather() %>%
-  separate(key, into = c('metric', 'stat'), sep = '_') %>%
-  spread(stat, value)
+stpwrd <- stop_words %>%
+  pull(word) %>%
+  str_remove_all('[[:punct:]]')
+
+seuss_tokens_long <- seuss_text_clean %>%
+  unnest_tokens(output = token, # specifies new column name
+                input = text, # specifies column containing text
+                token = 'words', # how to tokenize
+                stopwords = stpwrd) %>% # optional stopword removal
+  mutate(token = lemmatize_words(token)) 
 ```
+
+# Frequency measures
 ```{r}
-test_summaries <- test_accuracy %>%
-  rename(roc.auc = roc_auc) %>%
-  select(-partition) %>%
-  summarize_all(.funs = list(mean = mean, sd = sd)) %>%
-  gather() %>%
-  separate(key, into = c('metric', 'stat'), sep = '_') %>%
-  spread(stat, value)
+seuss_tfidf <- seuss_tokens_long %>%
+  count(doc, token) %>%
+  bind_tf_idf(term = token,
+              document = doc,
+              n = n) 
+
+seuss_df <- seuss_tfidf %>%
+  pivot_wider(id_cols = doc, 
+              names_from = token,
+              values_from = tf_idf,
+              values_fill = 0)
+
+seuss_df
 ```
 
 ```{r}
-left_join(train_summaries, 
-          test_summaries,
-          by = 'metric',
-          suffix = c('.train', '.test')) %>%
-  select(metric, contains('mean'), contains('sd')) %>%
-  knitr::kable()
+seuss_tfidf %>%
+  group_by(doc) %>%
+  slice_max(tf_idf, n = 2)
+```
+
+```{r}
+seuss_tfidf %>%
+  group_by(doc) %>%
+  slice_max(tf, n = 2)
 ```
 
