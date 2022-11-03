@@ -10,8 +10,197 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-install.packages('keras')
+#install.packages('keras')
 library(keras)
-install_keras()
+#install_keras()
 ```
+```{r}
+library(tensorflow)
+tf$constant('Hello world')
+```
+
+```{r}
+# packages
+library(tidyverse)
+library(tidymodels)
+library(tidytext)
+library(keras)
+library(tensorflow)
+
+# data location
+url <- 'https://raw.githubusercontent.com/pstat197/pstat197a/main/materials/labs/lab6-nn/data/claims-clean.csv'
+
+# read in data
+clean <- read_csv(url)
+```
+```{r}
+# partition
+set.seed(102722)
+partitions <- clean %>%
+  mutate(text_clean = str_trim(text_clean)) %>%
+  filter(str_length(text_clean) > 5) %>%
+  initial_split(prop = 0.8)
+```
+```{r}
+train_dtm <- training(partitions) %>%
+  unnest_tokens(output = 'token', 
+                input = text_clean) %>%
+  group_by(.id, bclass) %>%
+  count(token) %>%
+  bind_tf_idf(term = token, 
+              document = .id, 
+              n = n) %>%
+  pivot_wider(id_cols = c(.id, bclass), 
+              names_from = token, 
+              values_from = tf_idf,
+              values_fill = 0) %>%
+  ungroup()
+```
+
+Logistic regression as NN
+```{r}
+# extract first ten features
+x_train <- train_dtm %>%
+  ungroup() %>%
+  select(-.id, -bclass) %>%
+  select(1:10) %>%
+  as.matrix()
+
+# extract labels and coerce to binary
+y_train <- train_dtm %>% 
+  pull(bclass) %>%
+  factor() %>%
+  as.numeric() - 1
+```
+
+Model specification
+
+Model architecture is defined layer-by-layer. Keras has some preconfigured model types: for feedforward networks, use keras_model_sequential() .
+
+```{r}
+# specify model type
+model <- keras_model_sequential(input_shape = 10)
+```
+```{r}
+summary(model)
+```
+
+```{r}
+# add output layer
+model <- model %>% layer_dense(1) 
+```
+```{r}
+summary(model)
+```
+```{r}
+model <- model %>% 
+  layer_activation(activation = 'sigmoid')
+```
+Model configuration
+
+Configuring a keras model consists in equipping it with a loss and an optimization method. Optionally, metrics that you’d like computed at each training epoch can be included.
+
+```{r}
+model %>% compile(
+  loss = 'binary_crossentropy',
+  optimizer = optimizer_sgd(),
+  metrics = 'binary_accuracy'
+)
+```
+```{r}
+history <- model %>%
+  fit(x = x_train, 
+      y = y_train,
+      epochs = 10)
+```
+
+```{r}
+# retrieve weights
+# get_weights(model)
+```
+
+```{r}
+# evaluate on specified data
+evaluate(model, x_train, y_train)
+```
+
+```{r}
+# compute predictions
+model(x_train) %>% head()
+```
+Single-layer network
+```{r}
+# store full DTM as a matrix
+x_train <- train_dtm %>%
+  select(-bclass, -.id) %>%
+  as.matrix()
+```
+
+```{r}
+model <- keras_model_sequential(input_shape = ncol(x_train)) %>%
+  layer_dense(10) %>%
+  layer_dense(1) %>%
+  layer_activation(activation = 'sigmoid')
+
+summary(model)
+```
+```{r}
+model %>%
+  compile(
+    loss = 'binary_crossentropy',
+    optimizer = optimizer_sgd(),
+    metrics = 'binary_accuracy'
+  )
+```
+
+```{r}
+history <- model %>%
+  fit(x = x_train,
+      y = y_train,
+      epochs = 50)
+
+plot(history)
+```
+```{r}
+# change the optimizer
+model %>%
+  compile(
+    loss = 'binary_crossentropy',
+    optimizer = 'adam',
+    metrics = 'binary_accuracy'
+  )
+
+# re-train
+history <- model %>%
+  fit(x = x_train,
+      y = y_train,
+      epochs = 10)
+
+plot(history)
+```
+Validation data
+```{r}
+# redefine model
+model <- keras_model_sequential(input_shape = ncol(x_train)) %>%
+  layer_dense(10) %>%
+  layer_dense(1) %>%
+  layer_activation(activation = 'sigmoid')
+
+model %>%
+  compile(
+    loss = 'binary_crossentropy',
+    optimizer = 'adam',
+    metrics = 'binary_accuracy'
+  )
+
+# train with validation split
+history <- model %>%
+  fit(x = x_train,
+      y = y_train,
+      epochs = 20,
+      validation_split = 0.2)
+
+plot(history)
+```
+
 
